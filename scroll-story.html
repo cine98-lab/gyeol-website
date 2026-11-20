@@ -1,0 +1,809 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>결 GYEOL — 오래 쓸수록 깊어지는 가구</title>
+<meta name="description" content="만든 이의 이름을 새긴 원목 가구. 결 하우스에서 직접 앉아 보고 고르세요.">
+
+<!--
+  결 GYEOL — scroll-story edition (single file)
+  Motion stack:
+    · Lenis                          → inertial smooth scroll (lerp 0.1)
+    · CSS scroll-driven animations   → header, slideshow, floating gallery (animation-timeline)
+    · IntersectionObserver           → one-time reveals (headings, images, text)
+    · JS fallback                    → browsers without animation-timeline get the same effects from scroll position
+    · prefers-reduced-motion         → no Lenis, no animation; the page renders in its final, static state
+  Images live in ./images (same folder as the rest of the site).
+-->
+
+<!-- Decide motion mode before first paint, so nothing flashes from its final to its start state -->
+<script>
+  (function () {
+    var r = document.documentElement;
+    if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      r.classList.add('motion');
+      var sda = window.CSS && CSS.supports('animation-timeline: scroll()') && CSS.supports('view-timeline-name: --t');
+      if (!sda) r.classList.add('no-sda'); // scroll-driven animations unsupported → JS fallback
+    }
+  })();
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;600;700&amp;family=Noto+Sans+KR:wght@400;500;700&amp;family=Nanum+Pen+Script&amp;display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lenis@1.1.13/dist/lenis.css">
+
+<style>
+/* ════════════════════════════════════════════════════════════════════════
+   TOKENS (결 GYEOL design system)
+   ════════════════════════════════════════════════════════════════════════ */
+:root{
+  --bg:#F6EEE1; --paper:#EDE3D6; --ink:#2B3127; --ink-2:#565B50;
+  --terra:#B65A2C; --oak:#A5532A; --moss:#4E6450;
+  --sage:#A7B5A2; --sage-soft:#DCE2D3; --line:#D6CDBE; --field:#FCF8F1;
+  --ok:#4F5E3C; --err:#9A3324; --night:#1E221C;
+  --serif:'Noto Serif KR','Nanum Myeongjo',Georgia,serif;
+  --sans:'Noto Sans KR','Apple SD Gothic Neo','Malgun Gothic',system-ui,sans-serif;
+  --script:'Nanum Pen Script',cursive;
+  --nav-h:76px;
+  --ease-out:cubic-bezier(.2,.7,.2,1);
+  --ease-inout:cubic-bezier(.65,0,.35,1);
+
+  /* Heading entrance — swap for: heading-clip | heading-reveal | heading-perspective */
+  --heading-anim:heading-outline;
+}
+
+*,*::before,*::after{box-sizing:border-box}
+html{scroll-padding-top:calc(var(--nav-h) + 8px)}
+html,body{overflow-x:clip}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.7;-webkit-font-smoothing:antialiased}
+img{display:block;max-width:100%}
+a{color:var(--oak)}
+:focus-visible{outline:2px solid var(--oak);outline-offset:3px}
+.wrap{width:100%;max-width:1240px;margin:0 auto;padding:0 clamp(20px,5vw,56px)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+h1,h2,h3{font-family:var(--serif);font-weight:600;margin:0;word-break:keep-all;letter-spacing:-.01em}
+.script{font-family:var(--script);font-style:normal;font-weight:400;color:var(--oak);font-size:1.18em;letter-spacing:0;line-height:1}
+.eyebrow{margin:0 0 16px;font-size:13px;font-weight:500;letter-spacing:.18em;color:var(--ink-2)}
+.section{padding:clamp(96px,14vw,180px) 0}
+
+/* ════════════════════════════════════════════════════════════════════════
+   BUTTONS — terracotta fill ↔ outline only, 0.3s ease
+   ════════════════════════════════════════════════════════════════════════ */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:48px;padding:0 26px;border-radius:999px;
+  border:1px solid var(--terra);background:var(--terra);color:#fff;font:500 15px var(--sans);text-decoration:none;cursor:pointer;
+  transition:background-color .3s ease,color .3s ease,border-color .3s ease}
+.btn:hover{background:transparent;color:var(--oak);border-color:var(--oak)}
+.btn.ghost{background:transparent;color:inherit;border-color:currentColor}
+.btn.ghost:hover{background:var(--terra);border-color:var(--terra);color:#fff}
+.on-dark .btn:hover{color:#fff;border-color:#fff}            /* outline stays legible over photos */
+.btn svg{width:16px;height:16px}
+
+/* ════════════════════════════════════════════════════════════════════════
+   1. OVERLAP HEADER — transparent over the hero, turns solid as you scroll
+   Base styles = final (solid) state, so reduced-motion / no-JS gets a readable header.
+   ════════════════════════════════════════════════════════════════════════ */
+.nav{position:fixed;inset:0 0 auto;z-index:50;height:var(--nav-h);color:var(--ink)}
+.nav-bg{position:absolute;inset:0;background:var(--bg);border-bottom:1px solid var(--line)}
+.nav-shadow{position:absolute;inset:0 0 auto;height:180px;background:linear-gradient(rgba(10,12,9,.55),rgba(10,12,9,0));pointer-events:none;opacity:0}
+.nav-inner{position:relative;height:100%;display:flex;align-items:center;gap:28px}
+.logo{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink);transform-origin:left center}
+.logo svg{width:30px;height:30px}
+.logo b{font-family:var(--serif);font-size:24px;font-weight:700;line-height:1}
+.logo span{font-family:var(--serif);font-size:12px;letter-spacing:.3em}
+.nav-links{display:flex;gap:26px;margin-left:auto}
+.nav-links a{color:inherit;text-decoration:none;font-size:15px}
+.nav-links a:hover{text-decoration:underline;text-underline-offset:6px}
+.nav .btn{min-height:42px;padding:0 20px;font-size:14px}
+.menu-btn{display:none;align-items:center;gap:8px;background:none;border:1px solid currentColor;color:inherit;border-radius:999px;min-height:42px;padding:0 16px;font:500 14px var(--sans);cursor:pointer}
+.menu-btn svg{width:18px;height:18px}
+@media (max-width:860px){.nav-links{display:none}.menu-btn{display:inline-flex;margin-left:auto}.nav .btn{display:none}}
+
+/* motion: start state (over the hero) */
+html.motion .nav{color:#fff}
+html.motion .nav-bg{opacity:0}
+html.motion .nav-shadow{opacity:1}
+html.motion .logo{filter:brightness(0) invert(1);transform:scale(1.35)}
+
+@keyframes overlap-bg     { from{opacity:0} to{opacity:1} }                                   /* background fades in */
+@keyframes overlap-color  { from{color:#fff} to{color:var(--ink)} }                           /* text white → ink */
+@keyframes overlap-shadow { from{opacity:1} to{opacity:0} }                                   /* top dark gradient fades out */
+@keyframes overlap-logo   { from{filter:brightness(0) invert(1)} to{filter:none} }            /* white logo → original */
+@keyframes logo-scale     { from{transform:scale(1.35)} to{transform:scale(1)} }              /* big logo settles to 1 */
+
+@supports (animation-timeline: scroll()){
+  html.motion:not(.no-sda) .nav{animation:overlap-color linear forwards;animation-timeline:scroll(root);animation-range:0% 176px}
+  html.motion:not(.no-sda) .nav-bg{animation:overlap-bg linear forwards;animation-timeline:scroll(root);animation-range:0% 176px}
+  html.motion:not(.no-sda) .nav-shadow{animation:overlap-shadow linear forwards;animation-timeline:scroll(root);animation-range:0% 176px}
+  html.motion:not(.no-sda) .logo{animation-name:overlap-logo,logo-scale;animation-timing-function:linear;animation-fill-mode:forwards;
+    animation-timeline:scroll(root),scroll(root);animation-range:0% 176px,0% 132px}
+}
+/* JS fallback: --nav-p (0→1 over 176px) and --logo-p (0→1 over 132px) are set on .nav */
+html.no-sda .nav{color:color-mix(in srgb,var(--ink) calc(var(--nav-p,0) * 100%),#fff)}
+html.no-sda .nav-bg{opacity:var(--nav-p,0)}
+html.no-sda .nav-shadow{opacity:calc(1 - var(--nav-p,0))}
+html.no-sda .logo{filter:brightness(var(--nav-p,0)) invert(calc(1 - var(--nav-p,0)));transform:scale(calc(1.35 - .35 * var(--logo-p,0)))}
+
+/* ════════════════════════════════════════════════════════════════════════
+   HERO — full-bleed photo under the overlap header
+   ════════════════════════════════════════════════════════════════════════ */
+.hero{position:relative;height:100svh;min-height:620px;color:#fff;overflow:hidden;background:var(--night)}
+.hero-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 60%}
+.hero::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(15,18,14,.15) 30%,rgba(15,18,14,.72))}
+.hero-copy{position:absolute;z-index:1;left:0;right:0;bottom:clamp(56px,9vh,110px)}
+.hero .eyebrow{color:rgba(255,255,255,.85)}
+.hero h1{font-size:clamp(46px,7.6vw,118px);line-height:1.08;max-width:11em;--stroke:#fff}
+.hero h1 .script{color:#F3C9A0}
+.hero-lead{margin:24px 0 32px;max-width:30em;font-size:clamp(16px,1.4vw,19px);color:rgba(255,255,255,.9);word-break:keep-all}
+.hero-cta{display:flex;flex-wrap:wrap;gap:12px}
+.scroll-cue{position:absolute;z-index:1;right:clamp(20px,5vw,56px);bottom:clamp(56px,9vh,110px);font-size:12px;letter-spacing:.3em;writing-mode:vertical-rl;display:flex;align-items:center;gap:12px;color:rgba(255,255,255,.85)}
+.scroll-cue::after{content:"";width:1px;height:64px;background:currentColor}
+@media (max-width:640px){.scroll-cue{display:none}}
+
+/* ════════════════════════════════════════════════════════════════════════
+   6b. MARQUEE — endless horizontal band
+   ════════════════════════════════════════════════════════════════════════ */
+.marquee{overflow:hidden;background:var(--ink);color:var(--bg);padding:18px 0;border-block:1px solid var(--ink)}
+.marquee-track{display:flex;width:max-content}
+.marquee-track span{flex:none;padding-right:48px;font-family:var(--serif);font-size:clamp(20px,2.4vw,32px);white-space:nowrap}
+.marquee-track i{font-style:normal;color:#E7A57A;padding:0 24px}
+@keyframes marquee{ from{transform:translateX(0)} to{transform:translateX(-50%)} }       /* content is doubled → -50% loops seamlessly */
+html.motion .marquee-track{animation:marquee 38s linear infinite}
+
+/* ════════════════════════════════════════════════════════════════════════
+   STORY (intro)
+   ════════════════════════════════════════════════════════════════════════ */
+.story{text-align:center}
+.story h2{font-size:clamp(34px,5vw,68px);line-height:1.25}
+.story .lead{margin:32px auto 0;max-width:34em;font-family:var(--serif);font-size:clamp(18px,1.8vw,22px);line-height:1.9;color:var(--ink-2);word-break:keep-all}
+.values{list-style:none;padding:0;margin:clamp(64px,8vw,104px) 0 0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:clamp(20px,3vw,40px);text-align:left}
+.values li{border-top:1px solid var(--ink);padding-top:18px}
+.values b{display:block;font-family:var(--serif);font-weight:600;font-size:21px;margin-bottom:6px}
+.values span{color:var(--ink-2);font-size:15px;word-break:keep-all}
+@media (max-width:860px){.values{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:480px){.values{grid-template-columns:1fr}}
+
+/* ════════════════════════════════════════════════════════════════════════
+   2. SCROLLING SLIDESHOW — sticky stage, 3 backgrounds cross-fade, text blocks scroll past
+   Section height = 400vh → its "contain" phase is 300vh (one 100vh slice per scene).
+   ════════════════════════════════════════════════════════════════════════ */
+.slideshow{position:relative;background:var(--night);color:#fff;view-timeline-name:--scroll-slideshow-timeline;view-timeline-axis:block}
+.ss-stage{position:sticky;top:0;height:100vh;overflow:hidden}
+.ss-bg{position:absolute;inset:0}
+.ss-bg img{width:100%;height:100%;object-fit:cover}
+.ss-bg-1{z-index:3}.ss-bg-2{z-index:2}.ss-bg-3{z-index:1}
+.ss-stage::after{content:"";position:absolute;inset:0;z-index:4;background:linear-gradient(90deg,rgba(15,18,14,.62),rgba(15,18,14,.18) 60%,rgba(15,18,14,.5))}
+.ss-scenes{position:relative;z-index:5;margin-top:-100vh}
+.ss-scene{height:100vh;display:flex;align-items:center;padding:0 clamp(20px,7vw,120px)}
+.ss-scene:nth-child(even){justify-content:flex-end}                     /* alternate left / right */
+.ss-scene:nth-child(even) .ss-text{text-align:right}
+.ss-spacer{height:100vh}
+.ss-text{max-width:min(560px,90vw)}
+.ss-num{margin:0 0 18px;font-size:13px;letter-spacing:.24em;color:rgba(255,255,255,.8)}
+.ss-text h2{font-size:clamp(40px,6vw,92px);line-height:1.1;--stroke:#fff}
+.ss-text h2 .script{color:#F3C9A0;font-size:1.25em}
+.ss-text p.body{margin:24px 0 0;font-size:clamp(16px,1.4vw,19px);color:rgba(255,255,255,.88);word-break:keep-all}
+
+@keyframes bg-change{ from{opacity:1} to{opacity:0} }                   /* background cross-fade */
+@keyframes scene-text{                                                    /* text eases in, holds, eases out while passing */
+  0%{opacity:0;transform:translateY(80px)}
+  30%,70%{opacity:1;transform:none}
+  100%{opacity:0;transform:translateY(-80px)}
+}
+@supports (animation-timeline: view()){
+  html.motion:not(.no-sda) .ss-bg-1{animation:bg-change linear both;animation-timeline:--scroll-slideshow-timeline;animation-range:contain 0px contain 100vh}
+  html.motion:not(.no-sda) .ss-bg-2{animation:bg-change linear both;animation-timeline:--scroll-slideshow-timeline;animation-range:contain 100vh contain 200vh}
+  /* 3rd background stays as the last scene (fading it would reveal an empty stage) */
+  html.motion:not(.no-sda) .ss-text{animation:scene-text linear both;animation-timeline:view();animation-range:cover 5% cover 95%}
+}
+/* JS fallback sets the background opacities inline */
+
+/* ════════════════════════════════════════════════════════════════════════
+   COLLECTIONS
+   ════════════════════════════════════════════════════════════════════════ */
+.coll-head{display:flex;justify-content:space-between;align-items:flex-end;gap:32px;flex-wrap:wrap;margin-bottom:clamp(48px,6vw,80px)}
+.coll-head h2{font-size:clamp(34px,4.6vw,64px);line-height:1.2}
+.coll-head p{margin:0;color:var(--ink-2);font-size:14px}
+.coll-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:clamp(24px,5vw,72px);align-items:start}
+.coll:nth-child(2){margin-top:clamp(0px,12vw,180px)}
+.coll-fig{margin:0;overflow:hidden;aspect-ratio:4/5;background:var(--paper)}
+.coll-fig img{width:100%;height:100%;object-fit:cover}
+.coll-body{padding-top:28px}
+.coll-num{font-family:var(--serif);color:var(--oak);font-size:15px;margin:0 0 6px}
+.coll h3{font-size:clamp(30px,3.2vw,44px);line-height:1.2}
+.coll h3 small{display:block;font-family:var(--sans);font-size:15px;font-weight:400;color:var(--moss);margin-top:6px}
+.coll p{margin:16px 0 0;max-width:30em;word-break:keep-all}
+.coll .items{color:var(--ink-2);font-size:14px;margin-top:8px}
+.swatches{list-style:none;padding:0;margin:18px 0 0;display:flex;flex-wrap:wrap;gap:10px 18px;font-size:13px;color:var(--ink-2)}
+.swatches li{display:flex;align-items:center;gap:8px}
+.swatches i{width:22px;height:22px;border-radius:50%;box-shadow:inset 0 0 0 1px rgba(46,40,32,.2)}
+.coll .btn{margin-top:24px}
+@media (max-width:760px){.coll-grid{grid-template-columns:1fr}.coll:nth-child(2){margin-top:24px}}
+
+/* ════════════════════════════════════════════════════════════════════════
+   3. FLOATING GALLERY — 200vh, sticky centre text, 5 photos rising at different speeds
+   ════════════════════════════════════════════════════════════════════════ */
+.gallery{position:relative;height:200vh;background:var(--sage-soft);view-timeline-name:--gallery-scroll;view-timeline-axis:block}
+.g-center{position:sticky;top:0;height:100vh;display:grid;place-items:center;text-align:center;z-index:2;pointer-events:none;padding:0 20px}
+.g-center > div{pointer-events:auto}
+.g-center h2{font-size:clamp(36px,5.6vw,84px);line-height:1.2}
+.g-center .btn{margin-top:32px}
+.g-img{position:absolute;margin:0;z-index:1;width:var(--w,22vw)}
+.g-img img{width:100%;aspect-ratio:var(--ar,4/5);object-fit:cover}
+.g-img figcaption{margin-top:10px;font-size:13px;color:var(--ink-2)}
+.g-img:nth-of-type(1){--w:20vw;--ar:4/5;top:6%;left:5%}
+.g-img:nth-of-type(2){--w:17vw;--ar:1/1;top:16%;right:7%}
+.g-img:nth-of-type(3){--w:15vw;--ar:3/4;top:46%;left:4%}
+.g-img:nth-of-type(4){--w:22vw;--ar:4/3;top:58%;right:4%}
+.g-img:nth-of-type(5){--w:16vw;--ar:4/5;top:76%;left:40%}
+@media (max-width:760px){
+  .g-img:nth-of-type(1){--w:40vw}.g-img:nth-of-type(2){--w:34vw}.g-img:nth-of-type(3){--w:32vw}
+  .g-img:nth-of-type(4){--w:42vw}.g-img:nth-of-type(5){--w:36vw;left:30%}
+  .g-center > div{background:rgba(220,226,211,.9);padding:28px 18px;border-radius:4px}   /* keeps the heading readable as photos pass behind */
+}
+
+@keyframes image-move{ from{transform:translateY(0)} to{transform:translateY(calc(var(--speed) * -1%))} }  /* parallax rise */
+@supports (animation-timeline: view()){
+  html.motion:not(.no-sda) .g-img{animation:image-move linear both;animation-timeline:--gallery-scroll;animation-range:cover 0% exit 0%}
+}
+/* JS fallback sets transform inline from --speed */
+
+/* ════════════════════════════════════════════════════════════════════════
+   PROCESS
+   ════════════════════════════════════════════════════════════════════════ */
+.split{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:clamp(24px,5vw,72px);align-items:end}
+@media (max-width:860px){.split{grid-template-columns:1fr}}
+.split h2{font-size:clamp(34px,4.6vw,64px);line-height:1.2}
+.lead{margin:0;font-family:var(--serif);font-size:clamp(18px,1.9vw,23px);line-height:1.85;word-break:keep-all}
+.proc-figs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:clamp(16px,2.5vw,32px);margin-top:clamp(56px,7vw,96px)}
+.proc-figs figure{margin:0}
+.proc-figs .ph{overflow:hidden;aspect-ratio:3/4;background:var(--paper)}
+.proc-figs img{width:100%;height:100%;object-fit:cover}
+.proc-figs figcaption{margin-top:14px;font-size:14px;color:var(--ink-2)}
+.proc-figs figcaption b{font-family:var(--serif);font-weight:600;color:var(--oak);margin-right:8px}
+@media (max-width:760px){.proc-figs{grid-template-columns:1fr}.proc-figs .ph{aspect-ratio:3/2}}
+.steps{list-style:none;margin:clamp(56px,7vw,96px) 0 0;padding:0;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:24px;counter-reset:s}
+.steps li{counter-increment:s;border-top:1px solid var(--ink);padding-top:16px}
+.steps li::before{content:counter(s,decimal-leading-zero);display:block;font-family:var(--serif);color:var(--oak);font-size:14px;margin-bottom:10px}
+.steps h3{font-size:20px;margin-bottom:6px}
+.steps p{margin:0;font-size:15px;color:var(--ink-2);word-break:keep-all}
+@media (max-width:900px){.steps{grid-template-columns:1fr 1fr}}
+@media (max-width:480px){.steps{grid-template-columns:1fr}}
+
+/* ════════════════════════════════════════════════════════════════════════
+   HOUSE
+   ════════════════════════════════════════════════════════════════════════ */
+.house{background:var(--paper)}
+.house-grid{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:clamp(32px,6vw,96px);align-items:center}
+@media (max-width:860px){.house-grid{grid-template-columns:1fr}}
+.house-fig{margin:0;overflow:hidden;aspect-ratio:4/3}
+.house-fig img{width:100%;height:100%;object-fit:cover}
+.house h2{font-size:clamp(34px,4.6vw,64px);margin-bottom:24px}
+.house dl{display:grid;grid-template-columns:max-content 1fr;gap:10px 28px;margin:36px 0 0;font-size:15px}
+.house dt{color:var(--ink-2)}
+.house dd{margin:0}
+
+/* ════════════════════════════════════════════════════════════════════════
+   BOOKING FORM
+   ════════════════════════════════════════════════════════════════════════ */
+.book{background:var(--sage);--ink-2:#2E3A2C;--oak:#2B3127;--line:#93A28E}
+.book .split{align-items:start}
+.book .muted{color:var(--ink-2);margin:16px 0 0}
+.form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 24px}
+.form .full{grid-column:1/-1}
+@media (max-width:640px){.form{grid-template-columns:1fr}}
+label.f{display:flex;flex-direction:column;gap:6px;font-size:14px;font-weight:500}
+label.f em{font-style:normal;font-weight:400;color:var(--ink-2)}
+input,select,textarea{font:16px var(--sans);color:var(--ink);background:var(--field);border:1px solid var(--line);border-radius:3px;min-height:48px;padding:10px 12px;width:100%}
+textarea{min-height:110px;resize:vertical;line-height:1.6}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--ink);outline-offset:0;border-color:var(--ink)}
+.check{display:flex;gap:10px;align-items:flex-start;font-size:14px;color:var(--ink-2)}
+.check input{width:20px;height:20px;min-height:0;margin:3px 0 0;flex:none;accent-color:var(--ink)}
+.form .btn{justify-self:start}
+.status{margin:0;font-size:15px;min-height:1.6em}
+.status.err{color:var(--err)}
+
+/* ════════════════════════════════════════════════════════════════════════
+   FOOTER
+   ════════════════════════════════════════════════════════════════════════ */
+footer{background:var(--night);color:#CFD3C9;padding:72px 0 48px;font-size:14px}
+.foot{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:40px;align-items:end}
+@media (max-width:760px){.foot{grid-template-columns:1fr}}
+.foot .big{margin:0 0 8px;font-family:var(--serif);font-size:clamp(28px,3.6vw,48px);color:#fff;line-height:1.2}
+.news{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+.news input{flex:1 1 220px;background:transparent;color:#fff;border-color:#5F665A}
+.news input::placeholder{color:#AEB4A8}
+.foot-legal{text-align:right}
+.foot-legal p{margin:4px 0 0}
+@media (max-width:760px){.foot-legal{text-align:left}}
+
+/* ════════════════════════════════════════════════════════════════════════
+   6c. DRAWER + TOAST — slide-in-left / right / top
+   ════════════════════════════════════════════════════════════════════════ */
+@keyframes slide-in-left  { from{transform:translate3d(-100%,0,0)} to{transform:translate3d(0,0,0)} }
+@keyframes slide-in-right { from{transform:translate3d(100%,0,0)}  to{transform:translate3d(0,0,0)} }
+@keyframes slide-in-top   { from{transform:translate3d(0,-100%,0)} to{transform:translate3d(0,0,0)} }
+@keyframes backdrop-in    { from{opacity:0} to{opacity:1} }
+
+dialog.drawer{margin:0 0 0 auto;height:100%;max-height:none;width:min(380px,88vw);border:0;padding:24px 28px;background:var(--bg);color:var(--ink)}
+dialog.drawer.from-left{margin:0 auto 0 0}
+dialog.drawer::backdrop{background:rgba(20,22,18,.5)}
+html.motion dialog.drawer[open]{animation:slide-in-right .55s var(--ease-out)}           /* menu slides in from the right */
+html.motion dialog.drawer.from-left[open]{animation-name:slide-in-left}                   /* variant: from the left */
+html.motion dialog.drawer[open]::backdrop{animation:backdrop-in .4s ease}
+.drawer-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:40px}
+.drawer-logo b{font-family:var(--serif);font-size:24px}
+.drawer-logo span{font-family:var(--serif);font-size:12px;letter-spacing:.3em}
+.toast.err{background:var(--err)}
+.icon-btn{width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:none;color:var(--ink);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.icon-btn svg{width:18px;height:18px}
+.drawer nav{display:flex;flex-direction:column}
+.drawer nav a{font-family:var(--serif);font-size:28px;color:var(--ink);text-decoration:none;padding:12px 0;border-bottom:1px solid var(--line)}
+.drawer .btn{margin-top:32px;width:100%}
+
+.toast{position:fixed;z-index:60;top:0;left:0;right:0;display:flex;justify-content:center;padding:14px 20px;background:var(--ok);color:#fff;font-size:15px}
+.toast[hidden]{display:none}
+html.motion .toast:not([hidden]){animation:slide-in-top .5s var(--ease-out)}             /* success message drops from the top */
+
+/* ════════════════════════════════════════════════════════════════════════
+   4 · 5 · 6. ONE-TIME ENTRANCES (IntersectionObserver adds .is-in)
+   [data-anim="heading" | "clip" | "scale" | "up"]   delay via style="--d:.2s"
+   ════════════════════════════════════════════════════════════════════════ */
+html.motion [data-anim]:not(.is-in){visibility:hidden}
+[data-anim]{animation-delay:var(--d,0s)}
+
+/* 4. Heading — outline: stroked, big and lifted → settles down and fills in */
+@keyframes heading-outline{
+  from{-webkit-text-stroke:1px var(--stroke,var(--ink));color:transparent;transform:scale(1.5) translateY(-50px)}
+}
+/* 4-alt. clip: wiped in from the top while shrinking */
+@keyframes heading-clip{
+  from{clip-path:inset(0 0 100%);transform:scale(1.5)}
+  to{clip-path:inset(0);transform:scale(1)}
+}
+/* 4-alt. reveal: zoomed and faint → crisp */
+@keyframes heading-reveal{
+  from{transform:scale(1.8);opacity:.7}
+  to{transform:scale(1);opacity:1}
+}
+/* 4-alt. perspective: tilted toward the viewer → flat */
+@keyframes heading-perspective{
+  from{transform:perspective(300px) rotateX(35deg) translateZ(100px) scale(1.5)}
+  to{transform:none}
+}
+html.motion [data-anim="heading"]{transform-origin:left bottom}
+html.motion .story [data-anim="heading"],html.motion .g-center [data-anim="heading"]{transform-origin:center bottom}
+html.motion .ss-scene:nth-child(even) [data-anim="heading"]{transform-origin:right bottom}
+html.motion [data-anim="heading"].is-in{animation-name:var(--heading-anim);animation-duration:1.4s;animation-timing-function:var(--ease-out);animation-fill-mode:both}
+
+/* 5. Image clip-in: grayscale photo framed small → opens to full colour */
+@keyframes clip-in{
+  from{filter:grayscale(1);clip-path:inset(min(6rem,5vw) min(8rem,7vw))}
+  to{filter:grayscale(0);clip-path:inset(0%)}
+}
+html.motion [data-anim="clip"].is-in{animation:clip-in 1.6s var(--ease-inout) var(--d,0s) both}
+
+/* 5. Image scale-up: grayscale, stretched and low → settles into place */
+@keyframes scale-up{
+  from{filter:grayscale(1);transform:scaleY(1.5) translateY(150px)}
+  to{filter:grayscale(0);transform:none}
+}
+html.motion [data-anim="scale"]{transform-origin:center bottom}
+html.motion [data-anim="scale"].is-in{animation:scale-up 1.4s var(--ease-out) var(--d,0s) both}
+
+/* 6. Body text: move up + fade in */
+@keyframes move-up{ from{transform:translateY(100px)} to{transform:translateY(0)} }
+@keyframes fadeIn { from{opacity:0} to{opacity:1} }
+html.motion [data-anim="up"].is-in{animation:move-up 1.1s var(--ease-out) var(--d,0s) both,fadeIn 1.1s ease var(--d,0s) both}
+
+/* 5. Image loading: fade in once the file has arrived */
+@keyframes img-loading{ from{opacity:0} to{opacity:1} }
+html.motion img:not(.is-loaded){opacity:0}
+html.motion img.is-loaded{animation:img-loading .8s ease both}
+
+/* Safety net: reduced motion always wins */
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body>
+
+<!-- ── 1. Overlap header ─────────────────────────────────────────────── -->
+<header class="nav" id="nav">
+  <div class="nav-bg" aria-hidden="true"></div>
+  <div class="nav-shadow" aria-hidden="true"></div>
+  <div class="wrap nav-inner">
+    <a class="logo" href="#top" aria-label="결 GYEOL 처음으로">
+      <svg viewBox="0 0 200 200" aria-hidden="true"><g fill="none" stroke="#2B3127" stroke-width="9" stroke-linecap="round"><path d="M14 40 C70 40, 110 37, 186 40"/><path d="M14 70 C70 70, 94 60, 122 60 C150 60, 168 70, 186 70"/><path d="M14 100 C72 100, 98 86, 122 86 C146 86, 166 100, 186 100"/><path d="M14 130 C70 130, 94 120, 122 120 C150 120, 168 130, 186 130"/><path d="M14 160 C70 160, 110 157, 186 160"/></g></svg>
+      <b>결</b><span>GYEOL</span>
+    </a>
+    <nav class="nav-links" aria-label="섹션">
+      <a href="#story">이야기</a>
+      <a href="#collections">컬렉션</a>
+      <a href="#process">만드는 과정</a>
+      <a href="#house">결 하우스</a>
+    </nav>
+    <a class="btn" href="#book">상담 예약</a>
+    <button class="menu-btn" type="button" id="menuBtn" aria-haspopup="dialog" aria-controls="menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M4 8h16M4 16h16"/></svg>메뉴
+    </button>
+  </div>
+</header>
+
+<main id="top">
+
+  <!-- ── Hero ───────────────────────────────────────────────────────── -->
+  <section class="hero on-dark" aria-labelledby="heroTitle">
+    <img class="hero-img" src="images/hero-dining-room.jpg" alt="아침 햇살이 드는 들보 천장 다이닝룸의 원목 다이닝 테이블과 리넨 의자" fetchpriority="high">
+    <div class="wrap hero-copy">
+      <p class="eyebrow" data-anim="up">한국의 손과 나무로 만든 원목 가구</p>
+      <h1 id="heroTitle" data-anim="heading">오래 쓸수록 깊어지는 <em class="script">가구</em></h1>
+      <p class="hero-lead" data-anim="up" style="--d:.3s">만든 이의 이름을 새긴 원목 가구를 결 하우스에서 직접 앉아 보고 고르세요.</p>
+      <div class="hero-cta" data-anim="up" style="--d:.45s">
+        <a class="btn" href="#book">쇼룸 방문 예약하기 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+        <a class="btn ghost" href="#collections">컬렉션 보기</a>
+      </div>
+    </div>
+    <span class="scroll-cue" aria-hidden="true">SCROLL</span>
+  </section>
+
+  <!-- ── 6b. Marquee ────────────────────────────────────────────────── -->
+  <div class="marquee" aria-hidden="true">
+    <div class="marquee-track">
+      <span>오래 쓸수록 깊어지는 가구<i>·</i>국산 참나무<i>·</i>손마감<i>·</i>장인 이름 각인<i>·</i>구조 평생 보증<i>·</i></span>
+      <span>오래 쓸수록 깊어지는 가구<i>·</i>국산 참나무<i>·</i>손마감<i>·</i>장인 이름 각인<i>·</i>구조 평생 보증<i>·</i></span>
+    </div>
+  </div>
+
+  <!-- ── Story ──────────────────────────────────────────────────────── -->
+  <section class="section story" id="story" aria-labelledby="storyTitle">
+    <div class="wrap">
+      <p class="eyebrow" data-anim="up">OUR STORY</p>
+      <h2 id="storyTitle" data-anim="heading">결, 나무가 자라 온<br>시간의 <em class="script">무늬</em></h2>
+      <p class="lead" data-anim="up" style="--d:.2s">‘결’은 나뭇결이자 살결, 마음결입니다. 우리는 소재를 감추지 않고, 사람의 손으로 마감하며, 오래 쓸수록 깊어지는 가구를 만듭니다.</p>
+      <ul class="values">
+        <li data-anim="up"><b>바탕</b><span>수종과 산지, 마감재를 모두 밝힙니다.</span></li>
+        <li data-anim="up" style="--d:.1s"><b>손</b><span>제품마다 만든 장인의 이름과 제작일을 새깁니다.</span></li>
+        <li data-anim="up" style="--d:.2s"><b>시간</b><span>구조는 평생 보증하고, 필요할 때마다 다시 칠해 드립니다.</span></li>
+        <li data-anim="up" style="--d:.3s"><b>비례</b><span>한국의 거실과 침실 치수에 맞춰 설계합니다.</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ── 2. Scrolling slideshow ─────────────────────────────────────── -->
+  <section class="slideshow on-dark" id="slideshow" aria-label="결의 세 가지 약속">
+    <div class="ss-stage" aria-hidden="true">
+      <div class="ss-bg ss-bg-1"><img src="images/process-select.jpg" alt=""></div>
+      <div class="ss-bg ss-bg-2"><img src="images/process-finish.jpg" alt=""></div>
+      <div class="ss-bg ss-bg-3"><img src="images/story-table-pears.jpg" alt=""></div>
+    </div>
+    <div class="ss-scenes">
+      <div class="ss-scene">
+        <div class="ss-text">
+          <p class="ss-num">01 / 03</p>
+          <h2 data-anim="heading">나무의 <em class="script">결</em>을 따라</h2>
+          <p class="body">결이 곧고 옹이가 건강한 원목만 고릅니다. 수종과 산지, 마감재까지 숨김없이 밝힙니다.</p>
+        </div>
+      </div>
+      <div class="ss-scene">
+        <div class="ss-text">
+          <p class="ss-num">02 / 03</p>
+          <h2 data-anim="heading">손으로 <em class="script">새긴</em> 이름</h2>
+          <p class="body">오일과 왁스로 손마감해 결을 그대로 살리고, 제품마다 만든 장인의 이름과 제작일을 새깁니다.</p>
+        </div>
+      </div>
+      <div class="ss-scene">
+        <div class="ss-text">
+          <p class="ss-num">03 / 03</p>
+          <h2 data-anim="heading">시간이 <em class="script">쌓이는</em> 가구</h2>
+          <p class="body">짜맞춤 구조는 평생 보증하고, 첫 1년은 생활 흔적을 무상으로 다시 다듬어 드립니다.</p>
+        </div>
+      </div>
+      <div class="ss-spacer" aria-hidden="true"></div>
+    </div>
+  </section>
+
+  <!-- ── Collections ────────────────────────────────────────────────── -->
+  <section class="section" id="collections" aria-labelledby="collTitle">
+    <div class="wrap">
+      <div class="coll-head">
+        <div>
+          <p class="eyebrow" data-anim="up">COLLECTIONS</p>
+          <h2 id="collTitle" data-anim="heading">두 개의 컬렉션으로<br>시작합니다</h2>
+        </div>
+        <p data-anim="up">가격은 쇼룸 상담에서 안내해 드립니다.</p>
+      </div>
+      <div class="coll-grid">
+        <article class="coll">
+          <figure class="coll-fig" data-anim="clip"><img src="images/soban-dining.jpg" alt="햇살 드는 다이닝룸의 소반 다이닝 테이블과 의자 두 개" loading="lazy"></figure>
+          <div class="coll-body" data-anim="up">
+            <p class="coll-num">01</p>
+            <h3>소반<small>다이닝 컬렉션</small></h3>
+            <p>소반의 곡선 다리와 낮은 무게중심을 식탁과 의자로 옮겼습니다.</p>
+            <p class="items">다이닝 테이블, 다이닝 체어, 벤치, 사이드보드</p>
+            <ul class="swatches" aria-label="소재"><li><i style="background:#B98B5A"></i>국산 참나무</li><li><i style="background:#5B3E2B"></i>북미산 월넛</li></ul>
+            <a class="btn" href="#book">상담 예약하기</a>
+          </div>
+        </article>
+        <article class="coll">
+          <figure class="coll-fig" data-anim="clip"><img src="images/cat-low-table.jpg" alt="리넨 소파 앞에 놓인 낮은 원목 좌탁과 화병" loading="lazy"></figure>
+          <div class="coll-body" data-anim="up">
+            <p class="coll-num">02</p>
+            <h3>사랑<small>리빙 컬렉션</small></h3>
+            <p>사랑방에서 머물던 느린 시간을 거실로 들였습니다.</p>
+            <p class="items">3인 소파, 라운지 체어, 좌탁, 선반, 콘솔</p>
+            <ul class="swatches" aria-label="소재"><li><i style="background:#D8C3A0"></i>애쉬</li><li><i style="background:#5B3E2B"></i>월넛</li><li><i style="background:#8A5A36"></i>천연 가죽</li><li><i style="background:#E8DFD0"></i>리넨</li></ul>
+            <a class="btn" href="#book">상담 예약하기</a>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 3. Floating gallery ────────────────────────────────────────── -->
+  <section class="gallery" aria-labelledby="galTitle">
+    <div class="g-center">
+      <div>
+        <p class="eyebrow">PIECES</p>
+        <h2 id="galTitle" data-anim="heading">식탁에서 거실까지,<br><em class="script">한 사람</em>을 위한 가구</h2>
+        <a class="btn" href="#book">쇼룸에서 직접 보기</a>
+      </div>
+    </div>
+    <figure class="g-img" style="--speed:0"><img src="images/cat-dining-table.jpg" alt="원목 다이닝 테이블과 의자" loading="lazy"><figcaption>다이닝 테이블 · 소반</figcaption></figure>
+    <figure class="g-img" style="--speed:20"><img src="images/story-joinery.jpg" alt="테이블 다리의 짜맞춤 이음" loading="lazy"><figcaption>짜맞춤 이음</figcaption></figure>
+    <figure class="g-img" style="--speed:45"><img src="images/cat-sideboard.jpg" alt="원목 사이드보드" loading="lazy"><figcaption>사이드보드 · 소반</figcaption></figure>
+    <figure class="g-img" style="--speed:10"><img src="images/cat-bench.jpg" alt="낮은 원목 벤치" loading="lazy"><figcaption>벤치 · 소반</figcaption></figure>
+    <figure class="g-img" style="--speed:30"><img src="images/house-vase.jpg" alt="원목 테이블 위 도자기 화병과 찻잔" loading="lazy"><figcaption>결 하우스의 오후</figcaption></figure>
+  </section>
+
+  <!-- ── Process ────────────────────────────────────────────────────── -->
+  <section class="section" id="process" aria-labelledby="procTitle">
+    <div class="wrap">
+      <div class="split">
+        <div>
+          <p class="eyebrow" data-anim="up">PROCESS</p>
+          <h2 id="procTitle" data-anim="heading">한 그루의 <em class="script">시간</em></h2>
+        </div>
+        <p class="lead" data-anim="up" style="--d:.15s">나무 한 그루가 한 가족의 식탁이 되기까지, 서두르지 않고 다섯 번 손을 거칩니다.</p>
+      </div>
+      <div class="proc-figs">
+        <figure><div class="ph" data-anim="scale"><img src="images/process-select.jpg" alt="원목 상판 모서리의 나뭇결" loading="lazy"></div><figcaption><b>01 고르기</b>곧은 결과 건강한 옹이</figcaption></figure>
+        <figure><div class="ph" data-anim="scale" style="--d:.12s"><img src="images/process-join.jpg" alt="다리와 가로대가 맞물린 짜맞춤 이음" loading="lazy"></div><figcaption><b>03 짜맞추기</b>나무끼리 맞물리는 이음</figcaption></figure>
+        <figure><div class="ph" data-anim="scale" style="--d:.24s"><img src="images/process-finish.jpg" alt="장인이 원목 상판을 손으로 샌딩하는 모습" loading="lazy"></div><figcaption><b>04 마감하기</b>손으로 다듬는 표면</figcaption></figure>
+      </div>
+      <ol class="steps">
+        <li data-anim="up"><h3>고르기</h3><p>결이 곧고 옹이가 건강한 원목을 고릅니다.</p></li>
+        <li data-anim="up" style="--d:.08s"><h3>말리기</h3><p>나무가 제자리를 잡을 때까지 천천히 건조합니다.</p></li>
+        <li data-anim="up" style="--d:.16s"><h3>짜맞추기</h3><p>철물을 줄이고 나무끼리 맞물리게 짜 맞춥니다.</p></li>
+        <li data-anim="up" style="--d:.24s"><h3>마감하기</h3><p>오일과 왁스로 손마감해 결을 그대로 살립니다.</p></li>
+        <li data-anim="up" style="--d:.32s"><h3>집으로</h3><p>배송과 설치까지 직접 맡습니다.</p></li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ── House ──────────────────────────────────────────────────────── -->
+  <section class="section house" id="house" aria-labelledby="houseTitle">
+    <div class="wrap house-grid">
+      <figure class="house-fig" data-anim="clip"><img src="images/hero-dining-room.jpg" alt="결 하우스의 다이닝룸, 원목 테이블과 리넨 의자" loading="lazy"></figure>
+      <div>
+        <p class="eyebrow" data-anim="up">SHOWROOM</p>
+        <h2 id="houseTitle" data-anim="heading">결 <em class="script">하우스</em></h2>
+        <p class="lead" data-anim="up" style="--d:.15s">집처럼 꾸민 쇼룸에서 가구를 직접 써 보세요. 유리창 너머로 마감 작업을 볼 수 있고, ‘결 라이브러리’에서 원목 샘플을 만져 볼 수 있습니다.</p>
+        <dl data-anim="up" style="--d:.25s">
+          <dt>주소</dt><dd>[쇼룸 주소]</dd>
+          <dt>운영</dt><dd>[운영 요일과 시간], 예약제</dd>
+          <dt>문의</dt><dd>[전화번호]</dd>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Booking ────────────────────────────────────────────────────── -->
+  <section class="section book" id="book" aria-labelledby="bookTitle">
+    <div class="wrap split">
+      <div>
+        <h2 id="bookTitle" data-anim="heading">쇼룸 상담 <em class="script">예약</em></h2>
+        <p class="muted" data-anim="up">원하시는 날짜와 시간을 남겨 주시면 확인 후 연락드립니다.</p>
+      </div>
+      <form class="form" id="bookForm" novalidate data-anim="up" style="--d:.15s">
+        <label class="f"><span>이름</span><input name="name" autocomplete="name" required></label>
+        <label class="f"><span>연락처</span><input name="phone" type="tel" autocomplete="tel" required></label>
+        <label class="f full"><span>이메일</span><input name="email" type="email" autocomplete="email" required></label>
+        <label class="f"><span>희망 날짜</span><input name="date" type="date" required></label>
+        <label class="f"><span>희망 시간</span>
+          <select name="time" required>
+            <option value="">선택해 주세요</option>
+            <option>11:00</option><option>13:00</option><option>15:00</option><option>17:00</option>
+          </select></label>
+        <label class="f"><span>관심 컬렉션</span>
+          <select name="collection"><option>소반 (다이닝)</option><option>사랑 (리빙)</option><option>둘 다</option><option>아직 모르겠어요</option></select></label>
+        <label class="f"><span>공간</span>
+          <select name="space"><option>아파트</option><option>단독주택</option><option>매장·사무실</option><option>기타</option></select></label>
+        <label class="f full"><span>요청 사항 <em>(선택)</em></span><textarea name="note" placeholder="공간 크기, 찾는 가구, 궁금한 점을 적어 주세요."></textarea></label>
+        <label class="check full"><input type="checkbox" name="consent" required><span>상담 연락을 위해 이름, 연락처, 이메일을 수집·이용하는 데 동의합니다.</span></label>
+        <button class="btn" type="submit">예약 요청 보내기</button>
+        <p class="status full" id="bookStatus" role="status" aria-live="polite"></p>
+      </form>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <div>
+      <p class="big">결 노트 받아 보기</p>
+      <p style="margin:0">신작 소식과 가구 관리법, 쇼룸 행사를 먼저 알려 드립니다.</p>
+      <form class="news" id="newsForm" novalidate>
+        <label class="sr" for="newsEmail">이메일</label>
+        <input id="newsEmail" type="email" autocomplete="email" required placeholder="이메일 주소">
+        <button class="btn" type="submit">구독하기</button>
+      </form>
+    </div>
+    <div class="foot-legal">
+      <p>[사업자 정보]</p>
+      <p>© 2026 결 GYEOL</p>
+    </div>
+  </div>
+</footer>
+
+<!-- ── 6c. Menu drawer (slides in from the right) ───────────────────── -->
+<dialog class="drawer" id="menu" aria-label="메뉴">
+  <div class="drawer-head">
+    <span class="drawer-logo"><b>결</b> <span>GYEOL</span></span>
+    <button class="icon-btn" type="button" id="menuClose" aria-label="메뉴 닫기"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+  <nav aria-label="섹션">
+    <a href="#story">이야기</a>
+    <a href="#collections">컬렉션</a>
+    <a href="#process">만드는 과정</a>
+    <a href="#house">결 하우스</a>
+  </nav>
+  <a class="btn" href="#book">상담 예약</a>
+</dialog>
+
+<!-- ── 6c. Toast (slides in from the top) ──────────────────────────── -->
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="https://cdn.jsdelivr.net/npm/lenis@1.1.13/dist/lenis.min.js"></script>
+<script>
+(function () {
+  'use strict';
+  var root = document.documentElement;
+  var motion = root.classList.contains('motion');
+  var noSda = root.classList.contains('no-sda');
+  var NAV_H = 76;
+  var clamp01 = function (v) { return v < 0 ? 0 : v > 1 ? 1 : v; };
+
+  /* ── Lenis: inertial smooth scroll ─────────────────────────────────── */
+  var lenis = null;
+  if (motion && window.Lenis) {
+    lenis = new Lenis({ lerp: 0.1, smoothWheel: true });
+    var raf = function (t) { lenis.raf(t); requestAnimationFrame(raf); };
+    requestAnimationFrame(raf);
+  }
+
+  /* ── In-page links glide through Lenis, landing below the header ───── */
+  var menu = document.getElementById('menu');
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest('a[href^="#"]');
+    if (!a) return;
+    var id = a.getAttribute('href');
+    var target = id.length > 1 && document.querySelector(id);
+    if (!target) return;
+    e.preventDefault();
+    if (menu.open) {
+      menu.close();
+      if (lenis) lenis.start(); // the dialog's 'close' event fires later; Lenis must be running before scrollTo
+    }
+    var top = id === '#top';
+    if (lenis) lenis.scrollTo(top ? 0 : target, { offset: top ? 0 : -NAV_H });
+    else if (top) window.scrollTo({ top: 0, behavior: motion ? 'smooth' : 'auto' });
+    else target.scrollIntoView({ behavior: motion ? 'smooth' : 'auto' });
+    history.replaceState(null, '', id);
+  });
+
+  /* ── 4·5·6. One-time entrances: IntersectionObserver adds .is-in ───── */
+  var animEls = document.querySelectorAll('[data-anim]');
+  if (motion && 'IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (en.isIntersecting) { en.target.classList.add('is-in'); io.unobserve(en.target); }
+      });
+    }, { rootMargin: '0px 0px -10% 0px' });
+    animEls.forEach(function (el) { io.observe(el); });
+  } else {
+    animEls.forEach(function (el) { el.classList.add('is-in'); });
+  }
+
+  /* ── 5. Image loading fade ─────────────────────────────────────────── */
+  document.querySelectorAll('img').forEach(function (img) {
+    var done = function () { img.classList.add('is-loaded'); };
+    if (img.complete && img.naturalWidth) done();
+    else { img.addEventListener('load', done); img.addEventListener('error', done); }
+  });
+
+  /* ── Fallback for browsers without animation-timeline ──────────────── *
+   * Same effects as the CSS scroll-driven rules, computed from scroll position. */
+  if (motion && noSda) {
+    var nav = document.getElementById('nav');
+    var show = document.getElementById('slideshow');
+    var bg1 = show.querySelector('.ss-bg-1');
+    var bg2 = show.querySelector('.ss-bg-2');
+    var gallery = document.querySelector('.gallery');
+    var gImgs = Array.prototype.slice.call(gallery.querySelectorAll('.g-img')).map(function (el) {
+      return { el: el, speed: parseFloat(el.style.getPropertyValue('--speed')) || 0 };
+    });
+    var update = function () {
+      var y = window.scrollY, vh = window.innerHeight;
+      // 1. header: 0 → 176px (colours), 0 → 132px (logo scale)
+      nav.style.setProperty('--nav-p', clamp01(y / 176));
+      nav.style.setProperty('--logo-p', clamp01(y / 132));
+      // 2. slideshow: "contain" starts when the section top reaches the viewport top
+      var into = -show.getBoundingClientRect().top;
+      bg1.style.opacity = 1 - clamp01(into / vh);
+      bg2.style.opacity = 1 - clamp01((into - vh) / vh);
+      // 3. gallery: cover 0% (top at viewport bottom) → exit 0% (bottom at viewport bottom)
+      var g = gallery.getBoundingClientRect();
+      var p = clamp01((vh - g.top) / g.height);
+      gImgs.forEach(function (it) { it.el.style.transform = 'translateY(' + (-it.speed * p) + '%)'; });
+    };
+    if (lenis) lenis.on('scroll', update); else window.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    update();
+  }
+
+  /* ── 6c. Drawer ────────────────────────────────────────────────────── */
+  var menuBtn = document.getElementById('menuBtn');
+  menuBtn.addEventListener('click', function () { menu.showModal(); if (lenis) lenis.stop(); });
+  document.getElementById('menuClose').addEventListener('click', function () { menu.close(); });
+  menu.addEventListener('click', function (e) { if (e.target === menu) menu.close(); }); // backdrop click
+  menu.addEventListener('close', function () { if (lenis) lenis.start(); });
+
+  /* ── 6c. Toast ─────────────────────────────────────────────────────── */
+  var toast = document.getElementById('toast');
+  var toastTimer;
+  function showToast(msg, isErr) {
+    toast.textContent = msg;
+    toast.className = 'toast' + (isErr ? ' err' : '');
+    toast.hidden = true; void toast.offsetWidth; toast.hidden = false; // restart the slide-in
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toast.hidden = true; }, 4000);
+  }
+
+  /* ── Forms (no backend yet: validate + message only) ───────────────── */
+  var book = document.getElementById('bookForm');
+  var status = document.getElementById('bookStatus');
+  book.querySelector('input[type="date"]').min = new Date().toISOString().slice(0, 10);
+  book.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var missing = [], first = null;
+    book.querySelectorAll('[required]').forEach(function (el) {
+      if (el.type === 'checkbox') return;
+      if (!el.value.trim() || !el.checkValidity()) {
+        missing.push(el.closest('label').querySelector('span').textContent.trim());
+        first = first || el;
+      }
+    });
+    status.className = 'status full err';
+    if (missing.length) { status.textContent = '비어 있는 칸을 채워 주세요: ' + missing.join(', '); first.focus(); return; }
+    var consent = book.querySelector('input[name="consent"]');
+    if (!consent.checked) { status.textContent = '개인정보 수집·이용에 동의해 주세요.'; consent.focus(); return; }
+    status.textContent = '';
+    book.reset();
+    showToast('예약 요청을 받았습니다. 확인 후 연락드리겠습니다.');
+  });
+
+  var news = document.getElementById('newsForm');
+  news.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var email = news.querySelector('input');
+    if (!email.value.trim() || !email.checkValidity()) { email.focus(); showToast('이메일 주소를 확인해 주세요.', true); return; }
+    news.reset();
+    showToast('구독 신청을 받았습니다.');
+  });
+})();
+</script>
+</body>
+</html>

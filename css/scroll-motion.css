@@ -1,0 +1,141 @@
+/* 결 GYEOL — motion layer for the original design (index-motion.html / en-motion.html)
+   Loaded AFTER style.css. Changes no colours, sizes or layout: every effect ends in the
+   page's normal resting state.
+   · Lenis smooth scroll + CSS scroll-driven animations (animation-timeline)
+   · One-time entrances triggered by IntersectionObserver (.is-in)
+   · html.motion   → set in <head> unless the visitor prefers reduced motion
+   · html.no-sda   → browser lacks animation-timeline; js/scroll-motion.js drives the same effects */
+
+/* style.css fixes the header for the GSAP version; this page has no smoother wrapper → sticky again */
+.top{position:sticky}
+
+/* Photo frames clip their image exactly as before, but with overflow:clip instead of hidden:
+   overflow:hidden makes an element a scroll container, and view() timelines would then track
+   the frame instead of the page (the parallax would never move). */
+.circle,.slide,.slider,.proc-figs .ph,.house-fig{overflow:clip}
+
+/* Hover/focus colour changes ease in (same colours as the design) */
+.btn,.btn-pill,.arrow,.lang,.nav a,.hero-link{transition:background-color .3s ease,border-color .3s ease,color .3s ease}
+
+/* ════════════════════════════════════════════════════════════════════════
+   KEYFRAMES
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* Heading entrance — outline: stroked, big and lifted → settles down and fills in.
+   Swap via --heading-anim: heading-clip | heading-reveal | heading-perspective */
+:root{--heading-anim:heading-outline}
+@keyframes heading-outline{
+  from{-webkit-text-stroke:1px var(--stroke,#2B3127);color:transparent;transform:scale(1.5) translateY(-50px)}
+}
+@keyframes heading-clip{
+  from{clip-path:inset(0 0 100%);transform:scale(1.5)}
+  to{clip-path:inset(0);transform:scale(1)}
+}
+@keyframes heading-reveal{
+  from{transform:scale(1.8);opacity:.7}
+  to{transform:scale(1);opacity:1}
+}
+@keyframes heading-perspective{
+  from{transform:perspective(300px) rotateX(35deg) translateZ(100px) scale(1.5)}
+  to{transform:none}
+}
+
+/* Image clip-in: grayscale, framed small → opens out to full colour */
+@keyframes clip-in{
+  from{filter:grayscale(1);clip-path:inset(min(6rem,5vw) min(8rem,7vw))}
+  to{filter:grayscale(0);clip-path:inset(0%)}
+}
+/* Image scale-up: grayscale, stretched and low → settles into place */
+@keyframes scale-up{
+  from{filter:grayscale(1);transform:scaleY(1.5) translateY(150px)}
+  to{filter:grayscale(0);transform:none}
+}
+/* Body text: move up + fade in */
+@keyframes move-up{ from{transform:translateY(100px)} to{transform:translateY(0)} }
+@keyframes fadeIn { from{opacity:0} to{opacity:1} }
+/* Image file arrives: fade in */
+@keyframes img-loading{ from{opacity:0} to{opacity:1} }
+
+/* Parallax: photo drifts inside its frame while the frame crosses the screen */
+@keyframes img-parallax{
+  from{transform:translateY(-5%) scale(1.12)}
+  to{transform:translateY(5%) scale(1.12)}
+}
+/* Hero photo: starts exactly as designed, sinks and grows as you scroll away */
+@keyframes hero-parallax{
+  from{transform:none}
+  to{transform:translateY(6%) scale(1.12)}
+}
+/* Process steps: the rule above each step draws from left to right */
+@keyframes line-draw{ from{transform:scaleX(0)} to{transform:scaleX(1)} }
+
+/* ════════════════════════════════════════════════════════════════════════
+   ONE-TIME ENTRANCES (IntersectionObserver adds .is-in; JS staggers with --d)
+   Selector lists here must match REVEAL in js/scroll-motion.js
+   ════════════════════════════════════════════════════════════════════════ */
+html.motion :is(
+  .hero h1, .story-head h2, .benefits-title, #collTitle, #procTitle, #houseTitle, #bookTitle,
+  .hero-kicker, .hero-lead, .hero .cta, .hero-feats li, .tag,
+  .story-head p, .circles h3, .circles p, .center-cta, .benefits li, .slider-foot,
+  #process .lead, .proc-figs figcaption, .steps li, #house .lead, #house dl, #book .muted, .form, .foot > div,
+  .hero-visual .shape, .circle, .slide-img, .proc-figs .ph, .house-fig,
+  .hero-cats li
+):not(.is-in){visibility:hidden}
+
+/* Headings */
+html.motion :is(.hero h1, .story-head h2, .benefits-title, #collTitle, #procTitle, #houseTitle, #bookTitle){transform-origin:left bottom}
+html.motion .benefits-title{transform-origin:center bottom}
+html.motion :is(.hero h1, .story-head h2, .benefits-title, #collTitle, #procTitle, #houseTitle, #bookTitle).is-in{
+  animation-name:var(--heading-anim);animation-duration:1.4s;animation-timing-function:cubic-bezier(.2,.7,.2,1);
+  animation-fill-mode:both;animation-delay:var(--d,0s)
+}
+
+/* Text blocks */
+html.motion :is(.hero-kicker, .hero-lead, .hero .cta, .hero-feats li, .tag,
+  .story-head p, .circles h3, .circles p, .center-cta, .benefits li, .slider-foot,
+  #process .lead, .proc-figs figcaption, .steps li, #house .lead, #house dl, #book .muted, .form, .foot > div).is-in{
+  animation:move-up 1.1s cubic-bezier(.2,.7,.2,1) var(--d,0s) both,fadeIn 1.1s ease var(--d,0s) both
+}
+
+/* Photo frames */
+html.motion :is(.hero-visual .shape, .circle, .slide-img, .proc-figs .ph, .house-fig).is-in{
+  animation:clip-in 1.6s cubic-bezier(.65,0,.35,1) var(--d,0s) both
+}
+html.motion .hero-cats li{transform-origin:center bottom}
+html.motion .hero-cats li.is-in{animation:scale-up 1.3s cubic-bezier(.2,.7,.2,1) var(--d,0s) both}
+
+/* ════════════════════════════════════════════════════════════════════════
+   IMAGES: load fade + scroll-driven parallax inside their frames
+   (category tiles keep their hover zoom, so they only fade in)
+   ════════════════════════════════════════════════════════════════════════ */
+html.motion img:not(.is-loaded){opacity:0}
+html.motion img.is-loaded{animation:img-loading .8s ease both}
+
+@supports (animation-timeline: view()){
+  html.motion:not(.no-sda) :is(.circle, .slide-img, .proc-figs .ph, .house-fig) img.is-loaded{
+    animation:img-loading .8s ease both,img-parallax linear both;
+    animation-timeline:auto,view();
+    animation-range:normal,cover 0% cover 100%
+  }
+  html.motion:not(.no-sda) .hero-visual img.is-loaded{
+    animation:img-loading .8s ease both,hero-parallax linear both;
+    animation-timeline:auto,scroll(root);
+    animation-range:normal,0px 100vh
+  }
+
+  /* Process steps: rules draw in one after another as the list scrolls up */
+  html.motion:not(.no-sda) .steps{view-timeline-name:--steps}
+  html.motion:not(.no-sda) .steps li::after{animation:line-draw linear both;animation-timeline:--steps}
+  html.motion:not(.no-sda) .steps li:nth-child(1)::after{animation-range:entry 40% cover 30%}
+  html.motion:not(.no-sda) .steps li:nth-child(2)::after{animation-range:entry 55% cover 34%}
+  html.motion:not(.no-sda) .steps li:nth-child(3)::after{animation-range:entry 70% cover 38%}
+  html.motion:not(.no-sda) .steps li:nth-child(4)::after{animation-range:entry 85% cover 42%}
+  html.motion:not(.no-sda) .steps li:nth-child(5)::after{animation-range:entry 100% cover 46%}
+  @media (max-width:900px){html.motion:not(.no-sda) .steps li::after{animation:none}}   /* lines are hidden on narrow screens */
+}
+/* JS fallback (html.no-sda) writes the same transforms inline and --line on each step */
+
+/* Safety net: reduced motion always wins */
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}
